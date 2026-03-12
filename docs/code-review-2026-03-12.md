@@ -4,7 +4,7 @@
 **Date:** 2026-03-12
 **Scope:** Full codebase review (src/, test/, config)
 **Base:** main (0a2c299) | **Head:** dev (dc6cc84)
-**Test Status:** All 53 tests passing across 11 test files
+**Test Status:** All 70 tests passing across 12 test files
 
 ---
 

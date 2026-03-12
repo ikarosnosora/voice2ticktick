@@ -29,7 +29,7 @@ function normalizeTokenResponse(data: unknown): TokenResponse {
     throw invalidTokenResponseError();
   }
 
-  if (refreshToken !== undefined && typeof refreshToken !== "string") {
+  if (refreshToken !== undefined && (typeof refreshToken !== "string" || refreshToken.length === 0)) {
     throw invalidTokenResponseError();
   }
 

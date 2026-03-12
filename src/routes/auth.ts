@@ -140,6 +140,10 @@ authRoutes.get("/auth/callback", async (c) => {
       return c.json({ success: false, error: (error as Error).message }, 502);
     }
 
+    console.error("Unexpected error storing tokens", {
+      message: (error as Error).message,
+      error,
+    });
     throw error;
   }
 
