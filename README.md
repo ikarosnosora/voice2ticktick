@@ -63,7 +63,7 @@ After deploying, visit `https://your-worker.workers.dev/auth/login` to complete 
 pnpm dev          # Local dev server
 pnpm test         # Run tests
 pnpm test:watch   # Watch mode
-pnpm deploy       # Deploy to Cloudflare Workers
+pnpm run deploy   # Deploy to Cloudflare Workers
 ```
 
 ## API
