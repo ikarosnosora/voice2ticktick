@@ -4,3 +4,6 @@ dist/
 .wrangler/
 *.log
 .DS_Store
+.superpowers/
+.pnpm-store/
+docs/superpowers/
