@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_TIMEZONE, isValidTimeZone } from "../utils/timezone";
 
 const dateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$/;
 
@@ -6,20 +7,8 @@ function isValidDate(value: string): boolean {
   return !isNaN(new Date(value).getTime());
 }
 
-// Default timezone matches the current personal deployment and can be overridden per request.
-export const DEFAULT_TIMEZONE = "Asia/Singapore";
-
-function isValidTimeZone(value: string): boolean {
-  try {
-    Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export const RequestSchema = z.object({
-  text: z.string().trim().min(1),
+  text: z.string().trim().min(1).max(2000),
   timezone: z.string().default(DEFAULT_TIMEZONE).refine(isValidTimeZone, {
     message: "Invalid timezone",
   }),

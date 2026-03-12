@@ -25,6 +25,11 @@ describe("RequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects text longer than 2000 characters", () => {
+    const result = RequestSchema.safeParse({ text: "a".repeat(2001) });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects missing text", () => {
     const result = RequestSchema.safeParse({});
     expect(result.success).toBe(false);

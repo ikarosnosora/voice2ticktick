@@ -28,12 +28,22 @@ taskRoute.post("/api/task", async (c) => {
     const timezoneIssue = parsedRequest.error.issues.find(
       (issue) => issue.path[0] === "timezone",
     );
+    const textTooLongIssue = parsedRequest.error.issues.find(
+      (issue) => issue.path[0] === "text" && issue.code === "too_big",
+    );
     const textIssue = parsedRequest.error.issues.find(
       (issue) => issue.path[0] === "text",
     );
 
     if (timezoneIssue) {
       return c.json({ success: false, error: "Invalid timezone" }, 400);
+    }
+
+    if (textTooLongIssue) {
+      return c.json(
+        { success: false, error: "Text must be 2000 characters or fewer" },
+        400,
+      );
     }
 
     if (textIssue) {

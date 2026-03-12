@@ -1,5 +1,6 @@
 const TOKEN_URL = "https://ticktick.com/oauth/token";
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
+const refreshRequests = new Map<string, Promise<string>>();
 
 interface TokenResponse {
   access_token: string;
@@ -98,6 +99,21 @@ export class TokenManager {
   }
 
   private async refreshAccessToken(refreshToken: string): Promise<string> {
+    const refreshKey = `${this.clientId}:${refreshToken}`;
+    const inFlightRefresh = refreshRequests.get(refreshKey);
+    if (inFlightRefresh) {
+      return inFlightRefresh;
+    }
+
+    const refreshPromise = this.performTokenRefresh(refreshToken).finally(() => {
+      refreshRequests.delete(refreshKey);
+    });
+
+    refreshRequests.set(refreshKey, refreshPromise);
+    return refreshPromise;
+  }
+
+  private async performTokenRefresh(refreshToken: string): Promise<string> {
     const basicAuth = btoa(`${this.clientId}:${this.clientSecret}`);
     let res: Response;
     try {

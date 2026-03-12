@@ -1,17 +1,8 @@
-import { DEFAULT_TIMEZONE } from "../schemas/task";
+import { resolveTimeZone } from "../utils/timezone";
 
 interface PromptContext {
   timezone: string;
   projectNames: string[];
-}
-
-function resolveTimeZone(timezone: string): string {
-  try {
-    Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
-    return timezone;
-  } catch {
-    return DEFAULT_TIMEZONE;
-  }
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {

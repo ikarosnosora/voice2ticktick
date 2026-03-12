@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TokenManager } from "../../src/services/token-manager";
 
 function createMockKV(store: Record<string, string> = {}) {
@@ -12,6 +12,11 @@ function createMockKV(store: Record<string, string> = {}) {
 }
 
 describe("TokenManager", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("returns stored token when not expired", async () => {
     const futureMs = String(Date.now() + 3600_000);
     const kv = createMockKV({
@@ -55,6 +60,53 @@ describe("TokenManager", () => {
     expect(kv.put).toHaveBeenCalledWith("ticktick_refresh_token", "new-refresh");
 
     vi.unstubAllGlobals();
+  });
+
+  it("deduplicates concurrent refreshes across manager instances", async () => {
+    const soonMs = String(Date.now() + 2 * 60_000);
+    const sharedStore = {
+      ticktick_access_token: "old-token",
+      ticktick_refresh_token: "refresh-tok",
+      ticktick_token_expires_at: soonMs,
+    };
+    const firstManager = new TokenManager(
+      createMockKV(sharedStore),
+      "client-id",
+      "client-secret",
+    );
+    const secondManager = new TokenManager(
+      createMockKV(sharedStore),
+      "client-id",
+      "client-secret",
+    );
+
+    const mockFetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(
+              new Response(
+                JSON.stringify({
+                  access_token: "new-token",
+                  expires_in: 3600,
+                  refresh_token: "new-refresh",
+                }),
+                { status: 200 },
+              ),
+            );
+          }, 10);
+        }),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const [firstToken, secondToken] = await Promise.all([
+      firstManager.getValidToken(),
+      secondManager.getValidToken(),
+    ]);
+
+    expect(firstToken).toBe("new-token");
+    expect(secondToken).toBe("new-token");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("throws when no tokens exist", async () => {
