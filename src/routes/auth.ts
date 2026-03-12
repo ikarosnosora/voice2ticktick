@@ -1,0 +1,125 @@
+import { Hono } from "hono";
+import { TokenManager } from "../services/token-manager";
+import type { Env } from "../types";
+
+const AUTHORIZE_URL = "https://ticktick.com/oauth/authorize";
+const TOKEN_URL = "https://ticktick.com/oauth/token";
+const STATE_MAX_AGE_MS = 10 * 60 * 1000;
+
+export const authRoutes = new Hono<{ Bindings: Env }>();
+
+async function hmacSign(data: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+async function hmacVerify(
+  data: string,
+  signature: string,
+  secret: string,
+): Promise<boolean> {
+  const expected = await hmacSign(data, secret);
+  const encoder = new TextEncoder();
+  const [expectedHash, actualHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+    crypto.subtle.digest("SHA-256", encoder.encode(signature)),
+  ]);
+
+  return crypto.subtle.timingSafeEqual(expectedHash, actualHash);
+}
+
+function buildStatePayload(nonce: string, timestamp: number): string {
+  return `${nonce}.${timestamp}`;
+}
+
+authRoutes.get("/auth/login", async (c) => {
+  const nonce = crypto.randomUUID();
+  const timestamp = Date.now();
+  const payload = buildStatePayload(nonce, timestamp);
+  const signature = await hmacSign(payload, c.env.AUTH_KEY);
+  const state = `${payload}.${signature}`;
+  const redirectUri = new URL("/auth/callback", c.req.url).toString();
+
+  const params = new URLSearchParams({
+    client_id: c.env.TICKTICK_CLIENT_ID,
+    scope: "tasks:read tasks:write",
+    redirect_uri: redirectUri,
+    response_type: "code",
+    state,
+  });
+
+  return c.redirect(`${AUTHORIZE_URL}?${params.toString()}`);
+});
+
+authRoutes.get("/auth/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+
+  if (!code || !state) {
+    return c.json({ success: false, error: "Missing code or state" }, 400);
+  }
+
+  const parts = state.split(".");
+  if (parts.length < 3) {
+    return c.json({ success: false, error: "Invalid state" }, 403);
+  }
+
+  const signature = parts.pop() as string;
+  const payload = parts.join(".");
+  const valid = await hmacVerify(payload, signature, c.env.AUTH_KEY);
+
+  if (!valid) {
+    return c.json({ success: false, error: "Invalid state signature" }, 403);
+  }
+
+  const timestamp = Number(parts[1]);
+  if (Number.isNaN(timestamp) || Date.now() - timestamp > STATE_MAX_AGE_MS) {
+    return c.json({ success: false, error: "State expired" }, 403);
+  }
+
+  const redirectUri = new URL("/auth/callback", c.req.url).toString();
+  const basicAuth = btoa(`${c.env.TICKTICK_CLIENT_ID}:${c.env.TICKTICK_SECRET}`);
+  const tokenRes = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${basicAuth}`,
+    },
+    body: new URLSearchParams({
+      code,
+      grant_type: "authorization_code",
+      scope: "tasks:read tasks:write",
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    return c.json(
+      { success: false, error: "Failed to exchange code for tokens" },
+      502,
+    );
+  }
+
+  const tokenData = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+  };
+
+  const tokenManager = new TokenManager(
+    c.env.TICKTICK_STORE,
+    c.env.TICKTICK_CLIENT_ID,
+    c.env.TICKTICK_SECRET,
+  );
+  await tokenManager.storeTokens(tokenData);
+
+  return c.html("<h1>Authorization successful!</h1><p>You can close this page.</p>");
+});

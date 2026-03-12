@@ -1,0 +1,5 @@
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+TICKTICK_CLIENT_ID=your-client-id
+TICKTICK_SECRET=your-client-secret
+AUTH_KEY=your-secret-auth-key
