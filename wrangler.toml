@@ -4,15 +4,13 @@ compatibility_date = "2024-09-23"
 
 [vars]
 AI_PROVIDER = "anthropic"
-ANTHROPIC_MODEL = "claude-haiku-4-5"
-ANTHROPIC_BASE_URL = "https://api.anthropic.com"
-WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
+ANTHROPIC_BASE_URL = "https://zenmux.ai/api/anthropic/v1"
+WORKERS_AI_MODEL = "@cf/nvidia/nemotron-3-120b-a12b"
 
 [[kv_namespaces]]
 binding = "TICKTICK_STORE"
-# Fresh clones must replace this with the output of:
-#   wrangler kv namespace create TICKTICK_STORE
-id = "placeholder-replace-with-real-id"
+id = "34a141499b20456ba1f84b1102964327"
 
 [ai]
 binding = "AI"

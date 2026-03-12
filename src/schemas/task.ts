@@ -28,7 +28,7 @@ const LLMTaskSchema = z.object({
 });
 
 export const TaskArraySchema = z.object({
-  tasks: z.array(LLMTaskSchema).min(1).max(5),
+  tasks: z.array(LLMTaskSchema),
 });
 
 export type LLMTask = z.infer<typeof LLMTaskSchema>;

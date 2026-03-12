@@ -75,7 +75,11 @@ taskRoute.post("/api/task", async (c) => {
       }),
       prompt: text,
     });
-  } catch {
+  } catch (error) {
+    console.error("AI parse error", {
+      message: (error as Error).message,
+      error,
+    });
     return c.json({ success: false, error: "Failed to parse voice input" }, 502);
   }
 
