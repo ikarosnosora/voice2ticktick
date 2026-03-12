@@ -10,6 +10,11 @@ import type { Env } from "../types";
 
 export const taskRoute = new Hono<{ Bindings: Env }>();
 
+type PreparedTask = CreateTaskParams & {
+  title: string;
+  warnings: string[];
+};
+
 taskRoute.post("/api/task", async (c) => {
   let body: unknown;
   try {
@@ -23,12 +28,22 @@ taskRoute.post("/api/task", async (c) => {
     const timezoneIssue = parsedRequest.error.issues.find(
       (issue) => issue.path[0] === "timezone",
     );
+    const textTooLongIssue = parsedRequest.error.issues.find(
+      (issue) => issue.path[0] === "text" && issue.code === "too_big",
+    );
     const textIssue = parsedRequest.error.issues.find(
       (issue) => issue.path[0] === "text",
     );
 
     if (timezoneIssue) {
       return c.json({ success: false, error: "Invalid timezone" }, 400);
+    }
+
+    if (textTooLongIssue) {
+      return c.json(
+        { success: false, error: "Text must be 2000 characters or fewer" },
+        400,
+      );
     }
 
     if (textIssue) {
@@ -71,10 +86,11 @@ taskRoute.post("/api/task", async (c) => {
 
   let currentProjects = projects;
   let didRefreshProjects = false;
-  const tasksWithIds: Array<CreateTaskParams & { title: string }> = [];
+  const tasksWithIds: PreparedTask[] = [];
 
   for (const task of parsedTasks) {
     let projectId: string | undefined;
+    const warnings: string[] = [];
 
     if (task.projectName) {
       projectId = client.resolveProjectId(task.projectName, currentProjects);
@@ -82,6 +98,12 @@ taskRoute.post("/api/task", async (c) => {
         currentProjects = await client.getProjects(c.env.TICKTICK_STORE, true);
         didRefreshProjects = true;
         projectId = client.resolveProjectId(task.projectName, currentProjects);
+      }
+
+      if (!projectId) {
+        warnings.push(
+          `Project "${task.projectName}" was not found; task was created in inbox`,
+        );
       }
     }
 
@@ -91,11 +113,15 @@ taskRoute.post("/api/task", async (c) => {
       ...taskWithoutProjectName,
       projectId,
       timeZone: timezone,
+      warnings,
     });
   }
 
   const results = await Promise.allSettled(
-    tasksWithIds.map((task) => client.createTask(task)),
+    tasksWithIds.map(({ warnings, ...task }) => {
+      void warnings;
+      return client.createTask(task);
+    }),
   );
 
   const succeeded: Array<{
@@ -103,6 +129,7 @@ taskRoute.post("/api/task", async (c) => {
     title: string;
     dueDate?: string;
     project?: string;
+    warnings?: string[];
   }> = [];
   const failed: Array<{ title: string; error: string }> = [];
 
@@ -119,6 +146,9 @@ taskRoute.post("/api/task", async (c) => {
         title: result.value.title,
         dueDate: requestTask.dueDate,
         project: projectName,
+        ...(requestTask.warnings.length > 0
+          ? { warnings: requestTask.warnings }
+          : {}),
       });
       return;
     }

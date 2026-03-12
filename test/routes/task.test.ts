@@ -99,6 +99,23 @@ describe("POST /api/task", () => {
     expect(body.error).toContain("timezone");
   });
 
+  it("returns 400 for oversized text", async () => {
+    const { app, env } = createApp();
+    const res = await app.request(
+      "/api/task",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "a".repeat(2001) }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("2000");
+  });
+
   it("creates a single task successfully", async () => {
     vi.mocked(generateObject).mockResolvedValue({
       object: {
@@ -189,6 +206,132 @@ describe("POST /api/task", () => {
     expect(body.success).toBe(true);
     expect(body.tasks).toHaveLength(1);
     expect(body.failed).toHaveLength(1);
+  });
+
+  it("adds a warning when the requested project cannot be resolved", async () => {
+    vi.mocked(generateObject).mockResolvedValue({
+      object: {
+        tasks: [{ title: "开会", priority: 0, projectName: "Personal Errands" }],
+      },
+    } as Awaited<ReturnType<typeof generateObject>>);
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith("/project")) {
+        return new Response(
+          JSON.stringify([
+            { id: "p1", name: "Work" },
+            { id: "p2", name: "生活" },
+          ]),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ id: "t1", title: "开会" }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { app, env } = createApp();
+    const res = await app.request(
+      "/api/task",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "把开会放到 Personal Errands" }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      tasks: Array<{ project?: string; warnings?: string[] }>;
+    };
+    expect(body.tasks[0].project).toBeUndefined();
+    expect(body.tasks[0].warnings).toEqual([
+      'Project "Personal Errands" was not found; task was created in inbox',
+    ]);
+  });
+
+  it("refreshes projects on cache miss and uses the refreshed project", async () => {
+    vi.mocked(generateObject).mockResolvedValue({
+      object: {
+        tasks: [{ title: "开会", priority: 0, projectName: "Personal Errands" }],
+      },
+    } as Awaited<ReturnType<typeof generateObject>>);
+
+    const mockKV = {
+      get: vi.fn().mockImplementation((key: string) => {
+        const store: Record<string, string> = {
+          ticktick_access_token: "valid-token",
+          ticktick_refresh_token: "ref-tok",
+          ticktick_token_expires_at: String(Date.now() + 3600_000),
+          project_list: JSON.stringify([{ id: "p1", name: "Work" }]),
+          project_list_updated_at: String(Date.now()),
+        };
+
+        return Promise.resolve(store[key] ?? null);
+      }),
+      put: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const mockFetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/project")) {
+        return new Response(
+          JSON.stringify([
+            { id: "p1", name: "Work" },
+            { id: "p3", name: "Personal Errands" },
+          ]),
+          { status: 200 },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          id: "t1",
+          title: "开会",
+          projectId: JSON.parse(String(init?.body)).projectId,
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const app = new Hono<{ Bindings: Env }>();
+    app.route("/", taskRoute);
+
+    const res = await app.request(
+      "/api/task",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "把开会放到 Personal Errands" }),
+      },
+      {
+        TICKTICK_STORE: mockKV,
+        TICKTICK_CLIENT_ID: "cid",
+        TICKTICK_SECRET: "csec",
+        AI_PROVIDER: "anthropic",
+        ANTHROPIC_API_KEY: "sk-test",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        ANTHROPIC_MODEL: "claude-haiku-4-5",
+      } as unknown as Env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      tasks: Array<{ project?: string; warnings?: string[] }>;
+    };
+    expect(body.tasks[0].project).toBe("Personal Errands");
+    expect(body.tasks[0].warnings).toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      "https://ticktick.com/open/v1/task",
+      expect.objectContaining({
+        body: expect.stringContaining('"projectId":"p3"'),
+      }),
+    );
   });
 
   it("returns 502 when LLM fails", async () => {

@@ -25,6 +25,11 @@ describe("RequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects text longer than 2000 characters", () => {
+    const result = RequestSchema.safeParse({ text: "a".repeat(2001) });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects missing text", () => {
     const result = RequestSchema.safeParse({});
     expect(result.success).toBe(false);
@@ -124,7 +129,13 @@ describe("ResponseSchema", () => {
     const result = ResponseSchema.safeParse({
       success: true,
       summary: "已创建: 开会",
-      tasks: [{ id: "abc", title: "开会" }],
+      tasks: [
+        {
+          id: "abc",
+          title: "开会",
+          warnings: ['Project "Work" was not found; task was created in inbox'],
+        },
+      ],
       failed: [],
     });
     expect(result.success).toBe(true);

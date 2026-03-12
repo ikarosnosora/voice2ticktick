@@ -8,6 +8,13 @@ const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 
+function toBase64Url(data: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(data)))
+    .replace(/\+/gu, "-")
+    .replace(/\//gu, "_")
+    .replace(/=+$/u, "");
+}
+
 async function hmacSign(data: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -18,7 +25,7 @@ async function hmacSign(data: string, secret: string): Promise<string> {
     ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+  return toBase64Url(signature);
 }
 
 async function hmacVerify(
@@ -113,19 +120,34 @@ authRoutes.get("/auth/callback", async (c) => {
     );
   }
 
-  const tokenData = (await tokenRes.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-  };
+  let tokenData: unknown;
+  try {
+    tokenData = await tokenRes.json();
+  } catch {
+    return c.json({ success: false, error: "Invalid TickTick token response" }, 502);
+  }
 
   const tokenManager = new TokenManager(
     c.env.TICKTICK_STORE,
     c.env.TICKTICK_CLIENT_ID,
     c.env.TICKTICK_SECRET,
   );
+  try {
+    await tokenManager.storeTokens(tokenData);
+  } catch (error) {
+    const status = (error as Error & { status?: number }).status;
+    if (status === 502) {
+      return c.json({ success: false, error: (error as Error).message }, 502);
+    }
+
+    console.error("Unexpected error storing tokens", {
+      message: (error as Error).message,
+      error,
+    });
+    throw error;
+  }
+
   await Promise.all([
-    tokenManager.storeTokens(tokenData),
     c.env.TICKTICK_STORE.delete("project_list"),
     c.env.TICKTICK_STORE.delete("project_list_updated_at"),
   ]);

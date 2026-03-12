@@ -5,10 +5,13 @@ compatibility_date = "2024-09-23"
 [vars]
 AI_PROVIDER = "anthropic"
 ANTHROPIC_MODEL = "claude-haiku-4-5"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 [[kv_namespaces]]
 binding = "TICKTICK_STORE"
+# Fresh clones must replace this with the output of:
+#   wrangler kv namespace create TICKTICK_STORE
 id = "placeholder-replace-with-real-id"
 
 [ai]
