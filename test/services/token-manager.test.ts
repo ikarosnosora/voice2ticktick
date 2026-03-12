@@ -109,6 +109,27 @@ describe("TokenManager", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects malformed JSON during token refresh", async () => {
+    const soonMs = String(Date.now() + 2 * 60_000);
+    const kv = createMockKV({
+      ticktick_access_token: "old-token",
+      ticktick_refresh_token: "refresh-tok",
+      ticktick_token_expires_at: soonMs,
+    });
+    const tokenManager = new TokenManager(kv, "client-id", "client-secret");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("<html>nope</html>", { status: 200 })),
+    );
+
+    await expect(tokenManager.getValidToken()).rejects.toMatchObject({
+      message: "Invalid TickTick token response",
+      status: 502,
+    });
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
   it("throws when no tokens exist", async () => {
     const kv = createMockKV({});
     const tokenManager = new TokenManager(kv, "client-id", "client-secret");

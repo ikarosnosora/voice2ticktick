@@ -24,6 +24,49 @@ export interface CreatedTask {
   [key: string]: unknown;
 }
 
+function invalidProjectResponseError(): Error & { status: number } {
+  return Object.assign(new Error("Invalid TickTick project response"), {
+    status: 502,
+  });
+}
+
+function upstreamProjectFetchError(status: number): Error & { status: number } {
+  return Object.assign(new Error(`Failed to fetch projects: ${status}`), {
+    status: 502,
+  });
+}
+
+function normalizeProjectsResponse(data: unknown): Project[] {
+  if (!Array.isArray(data)) {
+    throw invalidProjectResponseError();
+  }
+
+  return data.map((project) => {
+    if (!project || typeof project !== "object") {
+      throw invalidProjectResponseError();
+    }
+
+    const { id, name } = project as Record<string, unknown>;
+    if (typeof id !== "string" || id.length === 0) {
+      throw invalidProjectResponseError();
+    }
+
+    if (typeof name !== "string") {
+      throw invalidProjectResponseError();
+    }
+
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      throw invalidProjectResponseError();
+    }
+
+    return {
+      id,
+      name: normalizedName,
+    };
+  });
+}
+
 export class TickTickClient {
   constructor(private readonly accessToken: string) {}
 
@@ -65,7 +108,7 @@ export class TickTickClient {
         const age = Date.now() - Number(updatedAt);
         if (age < CACHE_TTL_MS) {
           try {
-            return JSON.parse(cachedProjects) as Project[];
+            return normalizeProjectsResponse(JSON.parse(cachedProjects));
           } catch {
             // Fall through to refresh if cache content is malformed.
           }
@@ -101,15 +144,17 @@ export class TickTickClient {
     }
 
     if (!res.ok) {
-      throw new Error(`Failed to fetch projects: ${res.status}`);
+      throw upstreamProjectFetchError(res.status);
     }
 
-    const projects = ((await res.json()) as Array<{ id: string; name: string }>).map(
-      (project) => ({
-        id: project.id,
-        name: project.name,
-      }),
-    );
+    let responseData: unknown;
+    try {
+      responseData = await res.json();
+    } catch {
+      throw invalidProjectResponseError();
+    }
+
+    const projects = normalizeProjectsResponse(responseData);
 
     await Promise.all([
       kv.put("project_list", JSON.stringify(projects)),

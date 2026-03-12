@@ -61,7 +61,7 @@ TickTick uses non-standard priority integers: `0` (none), `1` (low), `3` (medium
 | `WORKERS_AI_MODEL` | No | Workers AI model override |
 | `AI_PROVIDER` | No | `anthropic` (default) or `workers-ai` |
 | `TICKTICK_CLIENT_ID` | Yes | TickTick OAuth client ID |
-| `TICKTICK_CLIENT_SECRET` | Yes | TickTick OAuth client secret |
+| `TICKTICK_SECRET` | Yes | TickTick OAuth client secret |
 | `TICKTICK_STORE` | Yes | KV namespace binding |
 
 Set secrets with `wrangler secret put <NAME>`.

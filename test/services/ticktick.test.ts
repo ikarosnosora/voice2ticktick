@@ -13,6 +13,7 @@ function createMockKV(store: Record<string, string> = {}) {
 
 describe("TickTickClient", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -108,6 +109,75 @@ describe("TickTickClient", () => {
       const projects = await client.getProjects(kv);
       expect(projects).toHaveLength(2);
       expect(kv.put).toHaveBeenCalledWith("project_list", expect.any(String));
+    });
+
+    it("refreshes when cached project data has an invalid shape", async () => {
+      const kv = createMockKV({
+        project_list: JSON.stringify([{ id: "p1", name: 123 }]),
+        project_list_updated_at: String(Date.now()),
+      });
+
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify([{ id: "p1", name: "Work" }]), {
+          status: 200,
+        }),
+      );
+      vi.stubGlobal("fetch", mockFetch);
+
+      const client = new TickTickClient("tok");
+      const projects = await client.getProjects(kv);
+
+      expect(projects).toEqual([{ id: "p1", name: "Work" }]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns a 502 error when project fetch is not ok", async () => {
+      const kv = createMockKV();
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response("Forbidden", { status: 401 })),
+      );
+
+      const client = new TickTickClient("tok");
+      await expect(client.getProjects(kv, true)).rejects.toMatchObject({
+        message: "Failed to fetch projects: 401",
+        status: 502,
+      });
+    });
+
+    it("rejects malformed JSON project responses", async () => {
+      const kv = createMockKV();
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response("<html>nope</html>", { status: 200 })),
+      );
+
+      const client = new TickTickClient("tok");
+      await expect(client.getProjects(kv, true)).rejects.toMatchObject({
+        message: "Invalid TickTick project response",
+        status: 502,
+      });
+      expect(kv.put).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid project response shapes", async () => {
+      const kv = createMockKV();
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify([{ id: "p1", name: 123 }]), { status: 200 }),
+        ),
+      );
+
+      const client = new TickTickClient("tok");
+      await expect(client.getProjects(kv, true)).rejects.toMatchObject({
+        message: "Invalid TickTick project response",
+        status: 502,
+      });
+      expect(kv.put).not.toHaveBeenCalled();
     });
 
     it("resolves projectName to projectId case-insensitively", () => {

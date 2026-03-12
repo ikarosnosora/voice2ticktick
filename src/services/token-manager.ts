@@ -140,7 +140,14 @@ export class TokenManager {
       throw err;
     }
 
-    const tokenData = await this.storeTokens(await res.json());
+    let responseData: unknown;
+    try {
+      responseData = await res.json();
+    } catch {
+      throw invalidTokenResponseError();
+    }
+
+    const tokenData = await this.storeTokens(responseData);
     return tokenData.access_token;
   }
 }
