@@ -36,10 +36,24 @@ describe("GET /auth/login", () => {
     expect(location).toContain("client_id=test-client-id");
     expect(location).toContain("state=");
   });
+
+  it("encodes the state signature as base64url", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("nonce-1");
+
+    const { app, env } = createApp();
+    const res = await app.request("/auth/login", undefined, env);
+    const location = res.headers.get("Location") ?? "";
+    const stateParam = new URL(location).searchParams.get("state") ?? "";
+    const signature = stateParam.split(".").at(-1) ?? "";
+
+    expect(signature).not.toMatch(/[+/=]/u);
+  });
 });
 
 describe("GET /auth/callback", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -57,6 +71,27 @@ describe("GET /auth/callback", () => {
       env,
     );
     expect(res.status).toBe(403);
+  });
+
+  it("rejects expired callback state", async () => {
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_700_000_000_000)
+      .mockReturnValueOnce(1_700_000_660_000);
+
+    const { app, env } = createApp();
+    const loginRes = await app.request("/auth/login", undefined, env);
+    const location = loginRes.headers.get("Location") ?? "";
+    const stateParam = new URL(location).searchParams.get("state") ?? "";
+
+    const res = await app.request(
+      `/auth/callback?code=abc&state=${encodeURIComponent(stateParam)}`,
+      undefined,
+      env,
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("State expired");
   });
 
   it("exchanges code for tokens on valid callback", async () => {
@@ -85,5 +120,36 @@ describe("GET /auth/callback", () => {
 
     expect(res.status).toBe(200);
     expect(mockKV.put).toHaveBeenCalledWith("ticktick_access_token", "new-access");
+  });
+
+  it("rejects invalid token payloads from TickTick", async () => {
+    const { app, env, mockKV } = createApp();
+    const loginRes = await app.request("/auth/login", undefined, env);
+    const location = loginRes.headers.get("Location") ?? "";
+    const stateParam = new URL(location).searchParams.get("state") ?? "";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            access_token: "new-access",
+            expires_in: "not-a-number",
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const res = await app.request(
+      `/auth/callback?code=authcode123&state=${encodeURIComponent(stateParam)}`,
+      undefined,
+      env,
+    );
+
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("Invalid TickTick token response");
+    expect(mockKV.put).not.toHaveBeenCalled();
   });
 });

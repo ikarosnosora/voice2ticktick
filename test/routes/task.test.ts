@@ -191,6 +191,51 @@ describe("POST /api/task", () => {
     expect(body.failed).toHaveLength(1);
   });
 
+  it("adds a warning when the requested project cannot be resolved", async () => {
+    vi.mocked(generateObject).mockResolvedValue({
+      object: {
+        tasks: [{ title: "开会", priority: 0, projectName: "Personal Errands" }],
+      },
+    } as Awaited<ReturnType<typeof generateObject>>);
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith("/project")) {
+        return new Response(
+          JSON.stringify([
+            { id: "p1", name: "Work" },
+            { id: "p2", name: "生活" },
+          ]),
+          { status: 200 },
+        );
+      }
+
+      return new Response(JSON.stringify({ id: "t1", title: "开会" }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { app, env } = createApp();
+    const res = await app.request(
+      "/api/task",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "把开会放到 Personal Errands" }),
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      tasks: Array<{ project?: string; warnings?: string[] }>;
+    };
+    expect(body.tasks[0].project).toBeUndefined();
+    expect(body.tasks[0].warnings).toEqual([
+      'Project "Personal Errands" was not found; task was created in inbox',
+    ]);
+  });
+
   it("returns 502 when LLM fails", async () => {
     vi.mocked(generateObject).mockRejectedValue(new Error("LLM timeout"));
 

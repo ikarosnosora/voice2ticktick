@@ -124,7 +124,13 @@ describe("ResponseSchema", () => {
     const result = ResponseSchema.safeParse({
       success: true,
       summary: "已创建: 开会",
-      tasks: [{ id: "abc", title: "开会" }],
+      tasks: [
+        {
+          id: "abc",
+          title: "开会",
+          warnings: ['Project "Work" was not found; task was created in inbox'],
+        },
+      ],
       failed: [],
     });
     expect(result.success).toBe(true);

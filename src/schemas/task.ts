@@ -6,6 +6,7 @@ function isValidDate(value: string): boolean {
   return !isNaN(new Date(value).getTime());
 }
 
+// Default timezone matches the current personal deployment and can be overridden per request.
 export const DEFAULT_TIMEZONE = "Asia/Singapore";
 
 function isValidTimeZone(value: string): boolean {
@@ -52,6 +53,7 @@ export const ResponseSchema = z.union([
       z.object({
         id: z.string(),
         title: z.string(),
+        warnings: z.array(z.string()).optional(),
       }).passthrough(),
     ),
     failed: z.array(

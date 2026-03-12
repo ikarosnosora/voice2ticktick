@@ -24,4 +24,9 @@ describe("App entrypoint", () => {
     const res = await app.request("/api/projects", { method: "POST" });
     expect(res.status).toBe(401);
   });
+
+  it("rejects GET /auth/login without auth", async () => {
+    const res = await app.request("/auth/login");
+    expect(res.status).toBe(401);
+  });
 });

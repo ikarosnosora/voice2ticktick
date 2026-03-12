@@ -79,4 +79,34 @@ describe("TokenManager", () => {
     expect(kv.put).toHaveBeenCalledWith("ticktick_access_token", "tok");
     expect(kv.put).toHaveBeenCalledWith("ticktick_refresh_token", "ref");
   });
+
+  it("accepts numeric string expires_in values", async () => {
+    const kv = createMockKV({});
+    const tokenManager = new TokenManager(kv, "client-id", "client-secret");
+
+    await tokenManager.storeTokens({
+      access_token: "tok",
+      refresh_token: "ref",
+      expires_in: "3600",
+    });
+
+    expect(kv.put).toHaveBeenCalledWith("ticktick_access_token", "tok");
+    expect(kv.put).toHaveBeenCalledWith("ticktick_refresh_token", "ref");
+    expect(kv.put).toHaveBeenCalledWith(
+      "ticktick_token_expires_at",
+      expect.any(String),
+    );
+  });
+
+  it("rejects invalid expires_in values", async () => {
+    const kv = createMockKV({});
+    const tokenManager = new TokenManager(kv, "client-id", "client-secret");
+
+    await expect(
+      tokenManager.storeTokens({
+        access_token: "tok",
+        expires_in: "not-a-number",
+      }),
+    ).rejects.toThrow("Invalid TickTick token response");
+  });
 });
