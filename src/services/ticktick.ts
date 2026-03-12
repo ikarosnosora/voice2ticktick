@@ -33,14 +33,19 @@ export class TickTickClient {
       body.isAllDay = String(body.isAllDay);
     }
 
-    const res = await fetch(`${BASE_URL}/task`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}/task`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw Object.assign(new Error("TickTick API request failed"), { status: 502 });
+    }
 
     if (!res.ok) {
       throw new Error(`TickTick API error: ${res.status}`);
@@ -84,11 +89,16 @@ export class TickTickClient {
   }
 
   private async fetchAndCacheProjects(kv: KVNamespace): Promise<Project[]> {
-    const res = await fetch(`${BASE_URL}/project`, {
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-      },
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}/project`, {
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+      });
+    } catch {
+      throw Object.assign(new Error("TickTick project fetch request failed"), { status: 502 });
+    }
 
     if (!res.ok) {
       throw new Error(`Failed to fetch projects: ${res.status}`);

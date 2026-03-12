@@ -7,6 +7,7 @@ function createApp() {
   const mockKV = {
     get: vi.fn().mockResolvedValue(null),
     put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
   };
 
   const app = new Hono<{ Bindings: Env }>();

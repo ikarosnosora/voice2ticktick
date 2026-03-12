@@ -2,101 +2,70 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
-
-**voice2ticktick** converts iPhone Action Button voice input into TickTick tasks. The flow: iPhone Action Button → iOS Dictate (on-device ASR) → Cloudflare Worker → AI (NLP parsing) → TickTick API → notification feedback.
-
-Design spec is in `docs/superpowers/specs/`. Architecture visualization in `docs/`.
-
-## Development Commands
+## Commands
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Local development (requires .dev.vars with secrets)
-pnpm wrangler dev
-
-# Run tests
-pnpm test
-
-# Deploy to Cloudflare
-pnpm wrangler deploy
+pnpm dev          # Local dev with Wrangler
+pnpm test         # Run tests once
+pnpm test:watch   # Run tests in watch mode
+pnpm deploy       # Deploy to Cloudflare Workers
 ```
 
-### Testing a single route locally
+Run a single test file:
 ```bash
-curl -X POST http://localhost:8787/api/task \
-  -H "X-Auth-Key: test" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"明天下午三点开会","timezone":"Asia/Singapore"}'
-
-curl http://localhost:8787/health
+pnpm vitest run test/services/ai-provider.test.ts
 ```
 
 ## Architecture
 
-**Runtime:** Cloudflare Workers (TypeScript) + Hono framework + Zod validation + Cloudflare KV
+**Voice → AI → TickTick pipeline** running on Cloudflare Workers (Hono + Zod).
 
-**AI SDK:** Vercel AI SDK (`ai` + `@ai-sdk/anthropic` + `workers-ai-provider`). Uses `generateObject()` with Zod schema for structured LLM output — no manual JSON parsing needed.
-
-**File structure:**
 ```
-src/
-├── index.ts               # Hono app, route registration
-├── types.ts               # Env bindings interface
-├── routes/
-│   ├── task.ts            # POST /api/task (main orchestration)
-│   ├── projects.ts        # POST /api/projects (refresh cache)
-│   ├── auth.ts            # GET /auth/login + /auth/callback (OAuth)
-│   └── health.ts
-├── services/
-│   ├── ai-provider.ts     # Provider factory (anthropic / workers-ai)
-│   ├── ticktick.ts        # TickTick API: create task, list projects
-│   └── token-manager.ts   # KV-backed OAuth token read/refresh/write
-├── middleware/
-│   ├── auth.ts            # X-Auth-Key validation (timing-safe)
-│   └── error-handler.ts
-├── prompts/
-│   └── task-parser.ts     # LLM system prompt (injects time, projects, priority rules)
-└── schemas/
-    └── task.ts            # Zod schemas for request, LLM output, response
+iPhone Action Button → iOS Dictate (on-device ASR) → POST /api/tasks → AI parser → TickTick API
 ```
 
-## Key Design Decisions
+### Key layers
 
-**AI Provider:** Configurable via `AI_PROVIDER` env var. Default `"anthropic"` uses `@ai-sdk/anthropic` with `ANTHROPIC_BASE_URL` (supports Zenmux or direct Anthropic). `"workers-ai"` uses Cloudflare Workers AI binding.
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| Routes | `src/routes/` | `task.ts` (main), `auth.ts` (OAuth), `projects.ts`, `health.ts` |
+| Middleware | `src/middleware/` | `auth.ts` (AUTH_KEY check), `error-handler.ts` |
+| Services | `src/services/` | `ai-provider.ts`, `ticktick.ts`, `token-manager.ts` |
+| Prompts | `src/prompts/task-parser.ts` | LLM prompt + Zod schema for `generateObject()` |
+| Schemas | `src/schemas/task.ts` | Request/response Zod validation |
 
-**LLM output:** `generateObject()` with Zod schema. Multi-task support (one voice input → array of tasks). Priority is fully LLM-inferred from context — explicit signals ("重要", "urgent") and implicit signals (task nature, deadlines) — not hardcoded keyword mapping.
+### AI provider abstraction
 
-**TickTick API:** Base URL is `https://ticktick.com/open/v1`. OAuth 2.0 tokens stored in Cloudflare KV. Token auto-refresh when `access_token` expires within 5 minutes. The `refresh_token` itself does not expire.
+`AI_PROVIDER` env var selects the provider at runtime:
+- **`anthropic` (default):** `@ai-sdk/anthropic` with `ANTHROPIC_BASE_URL` (supports Zenmux gateway) and `ANTHROPIC_MODEL` (default: `claude-haiku-4-5`)
+- **`workers-ai`:** `workers-ai-provider` with `AI` binding, `WORKERS_AI_MODEL` (default: `@cf/meta/llama-3.1-8b-instruct`)
 
-**Project cache:** TickTick project list cached in KV with 24h TTL. The LLM prompt includes the project list for fuzzy-matching project names from voice input.
+Both use `generateObject()` with the same Zod schema — provider-agnostic downstream.
 
-**Timezone:** Sent by iOS Shortcut from device (e.g. `"Asia/Singapore"`), falls back to `"Asia/Singapore"` if omitted. Supports travel — always uses the device's current timezone.
+### OAuth / Token management
 
-**Auth middleware:** `X-Auth-Key` header validated with `crypto.subtle.timingSafeEqual` on all `/api/*` routes.
+TickTick OAuth tokens are stored in Cloudflare KV (`TICKTICK_STORE`). `token-manager.ts` handles storage and refresh. The auth flow is initiated via `POST /auth/login`.
 
-## Environment Variables
+### Priority values
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `AI_PROVIDER` | Var | `"anthropic"` (default) or `"workers-ai"` |
-| `ANTHROPIC_API_KEY` | Secret | `sk-ant-...` |
-| `ANTHROPIC_BASE_URL` | Secret | Defaults to `https://api.anthropic.com`; set for Zenmux/custom gateway |
-| `ANTHROPIC_MODEL` | Var (optional) | Default: `claude-haiku-4-5` |
-| `WORKERS_AI_MODEL` | Var (optional) | Default: `@cf/meta/llama-3.1-8b-instruct` |
-| `TICKTICK_CLIENT_ID` | Secret | From developer.ticktick.com |
-| `TICKTICK_SECRET` | Secret | From developer.ticktick.com |
-| `AUTH_KEY` | Secret | Custom key sent by iOS Shortcut in `X-Auth-Key` header |
-| `TICKTICK_STORE` | KV Binding | KV namespace for tokens/cache |
-| `AI` | AI Binding | Cloudflare Workers AI (for `workers-ai` provider) |
+TickTick uses non-standard priority integers: `0` (none), `1` (low), `3` (medium), `5` (high).
 
-Store local secrets in `.dev.vars` (gitignored). For production, use `wrangler secret put`.
+## Environment variables
 
-## One-Time Setup
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `AUTH_KEY` | Yes | Shared secret for request auth |
+| `ANTHROPIC_API_KEY` | If anthropic provider | API key |
+| `ANTHROPIC_BASE_URL` | No | Custom gateway (e.g. Zenmux); defaults to `https://api.anthropic.com` |
+| `ANTHROPIC_MODEL` | No | Model override; default `claude-haiku-4-5` |
+| `WORKERS_AI_MODEL` | No | Workers AI model override |
+| `AI_PROVIDER` | No | `anthropic` (default) or `workers-ai` |
+| `TICKTICK_CLIENT_ID` | Yes | TickTick OAuth client ID |
+| `TICKTICK_CLIENT_SECRET` | Yes | TickTick OAuth client secret |
+| `TICKTICK_STORE` | Yes | KV namespace binding |
 
-1. Register app at developer.ticktick.com, set Redirect URI to `https://your-worker.workers.dev/auth/callback`
-2. Deploy Worker with KV namespace + secrets configured in `wrangler.toml`
-3. Visit `/auth/login` in browser to complete TickTick OAuth → tokens stored in KV automatically
-4. Create iOS Shortcut: Dictate Text → get device timezone → POST to `/api/task` with `X-Auth-Key` header + `{"text": ..., "timezone": ...}` → parse JSON response → show notification
+Set secrets with `wrangler secret put <NAME>`.
+
+## Design spec
+
+Full design doc: `docs/superpowers/specs/2026-03-12-voice2ticktick-design.md`

@@ -22,7 +22,7 @@ export class TokenManager {
       this.kv.get("ticktick_token_expires_at"),
     ]);
 
-    if (!accessToken || !refreshToken) {
+    if (!accessToken) {
       const err = new Error("TickTick not authorized. Visit /auth/login");
       (err as Error & { status?: number }).status = 503;
       throw err;
@@ -31,6 +31,12 @@ export class TokenManager {
     const expiresAtMs = Number(expiresAt ?? 0);
     if (Date.now() < expiresAtMs - REFRESH_THRESHOLD_MS) {
       return accessToken;
+    }
+
+    if (!refreshToken) {
+      const err = new Error("TickTick not authorized. Visit /auth/login");
+      (err as Error & { status?: number }).status = 503;
+      throw err;
     }
 
     return this.refreshAccessToken(refreshToken);
@@ -54,17 +60,24 @@ export class TokenManager {
 
   private async refreshAccessToken(refreshToken: string): Promise<string> {
     const basicAuth = btoa(`${this.clientId}:${this.clientSecret}`);
-    const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: `Basic ${basicAuth}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      });
+    } catch {
+      const err = new Error("Token refresh request failed");
+      (err as Error & { status?: number }).status = 502;
+      throw err;
+    }
 
     if (!res.ok) {
       const err = new Error("Failed to refresh TickTick token");

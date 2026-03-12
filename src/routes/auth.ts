@@ -87,19 +87,24 @@ authRoutes.get("/auth/callback", async (c) => {
 
   const redirectUri = new URL("/auth/callback", c.req.url).toString();
   const basicAuth = btoa(`${c.env.TICKTICK_CLIENT_ID}:${c.env.TICKTICK_SECRET}`);
-  const tokenRes = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${basicAuth}`,
-    },
-    body: new URLSearchParams({
-      code,
-      grant_type: "authorization_code",
-      scope: "tasks:read tasks:write",
-      redirect_uri: redirectUri,
-    }),
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: new URLSearchParams({
+        code,
+        grant_type: "authorization_code",
+        scope: "tasks:read tasks:write",
+        redirect_uri: redirectUri,
+      }),
+    });
+  } catch {
+    return c.json({ success: false, error: "Token exchange request failed" }, 502);
+  }
 
   if (!tokenRes.ok) {
     return c.json(
@@ -119,7 +124,11 @@ authRoutes.get("/auth/callback", async (c) => {
     c.env.TICKTICK_CLIENT_ID,
     c.env.TICKTICK_SECRET,
   );
-  await tokenManager.storeTokens(tokenData);
+  await Promise.all([
+    tokenManager.storeTokens(tokenData),
+    c.env.TICKTICK_STORE.delete("project_list"),
+    c.env.TICKTICK_STORE.delete("project_list_updated_at"),
+  ]);
 
   return c.html("<h1>Authorization successful!</h1><p>You can close this page.</p>");
 });
